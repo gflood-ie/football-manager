@@ -1,0 +1,69 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Functions to help with repetitive logic
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && getUserData().role == 'super_admin';
+    }
+    
+    function isManager() {
+        return isSignedIn() && getUserData().role == 'manager';
+    }
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isSuperAdmin();
+    }
+    
+    match /invitations/{inviteId} {
+       // Allow reading invitations by ID (for code check / registration)
+       allow get: if true; 
+       
+       // Super Admins can list all. Managers can list their team's invites.
+       allow list: if isSuperAdmin() || (isSignedIn() && resource.data.teamId == getUserData().teamId);
+
+       // Super Admins can create anywhere. Managers can create for their team.
+       allow create: if isSuperAdmin() || (isSignedIn() && request.resource.data.teamId == getUserData().teamId);
+       
+       // Super Admins can delete anywhere. Managers can delete their team's invites.
+       allow delete: if isSuperAdmin() || (isSignedIn() && resource.data.teamId == getUserData().teamId);
+
+       allow update: if true; // Needs specific validation for "used" field in future
+    }
+    
+    match /teams/{teamId} {
+      allow read: if isSignedIn();
+      allow create: if isManager() || isSuperAdmin();
+      allow update: if isSuperAdmin() || resource.data.managerId == request.auth.uid;
+    }
+
+    // Data Collections - Secured by teamId
+    match /players/{playerId} {
+       allow read, list: if isSignedIn() && resource.data.teamId == getUserData().teamId;
+       allow create: if isSignedIn() && request.resource.data.teamId == getUserData().teamId;
+       allow update, delete: if isSignedIn() && resource.data.teamId == getUserData().teamId;
+    }
+    
+    match /matches/{matchId} {
+       allow read, list: if isSignedIn() && resource.data.teamId == getUserData().teamId;
+       allow create: if isSignedIn() && request.resource.data.teamId == getUserData().teamId;
+       allow update, delete: if isSignedIn() && resource.data.teamId == getUserData().teamId;
+    }
+    
+    match /training_sessions/{sessionId} {
+       allow read, list: if isSignedIn() && resource.data.teamId == getUserData().teamId;
+       allow create: if isSignedIn() && request.resource.data.teamId == getUserData().teamId;
+       allow update, delete: if isSignedIn() && resource.data.teamId == getUserData().teamId;
+    }
+  }
+}

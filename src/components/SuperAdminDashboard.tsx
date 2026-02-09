@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, query, orderBy, deleteDoc, doc, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -73,6 +74,17 @@ const SuperAdminDashboard: React.FC = () => {
         alert("Code copied to clipboard!");
     };
 
+    const handleResetPassword = async (email: string) => {
+        if (!confirm(`Send password reset email to ${email}?`)) return;
+        try {
+            await sendPasswordResetEmail(auth, email);
+            alert(`Password reset email sent to ${email}`);
+        } catch (error) {
+            console.error("Error sending reset email:", error);
+            alert("Error sending password reset email. Please try again.");
+        }
+    };
+
     return (
         <div style={{ padding: '16px', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
             {/* Header */}
@@ -141,6 +153,28 @@ const SuperAdminDashboard: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
+                            <button
+                                onClick={() => handleResetPassword(manager.email)}
+                                style={{
+                                    marginTop: '8px',
+                                    background: 'rgba(255,199,44,0.1)',
+                                    border: '1px solid var(--celtic-gold)',
+                                    color: 'var(--celtic-gold)',
+                                    padding: '6px 12px',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    width: '100%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                Reset Password
+                            </button>
                         </div>
                     ))}
                     {managers.length === 0 && (

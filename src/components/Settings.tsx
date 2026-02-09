@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, limit, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, auth, storage } from '../firebase';
@@ -18,6 +18,11 @@ const Settings: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+
+    // Assistant Manager State
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [pendingInvites, setPendingInvites] = useState<any[]>([]);
+    const [assistants, setAssistants] = useState<any[]>([]);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,6 +46,84 @@ const Settings: React.FC = () => {
         };
         fetchTeamData();
     }, [userProfile]);
+
+    // Fetch Assistants and Invites
+    useEffect(() => {
+        if (!userProfile?.teamId) return;
+
+        // Listen for pending invites
+        const qInvites = query(
+            collection(db, 'invitations'),
+            where('teamId', '==', userProfile.teamId),
+            where('used', '==', false)
+        );
+
+        const unsubscribeInvites = onSnapshot(qInvites, (snapshot) => {
+            setPendingInvites(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        // Listen for active assistants
+        const qAssistants = query(
+            collection(db, 'users'),
+            where('teamId', '==', userProfile.teamId),
+            where('role', '==', 'assistant_manager')
+        );
+
+        const unsubscribeAssistants = onSnapshot(qAssistants, (snapshot) => {
+            setAssistants(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        return () => {
+            unsubscribeInvites();
+            unsubscribeAssistants();
+        };
+    }, [userProfile?.teamId]);
+
+    const handleInviteAssistant = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!userProfile?.teamId) return;
+
+        setLoading(true);
+        try {
+            // Check if invite already exists
+            const q = query(
+                collection(db, 'invitations'),
+                where('teamId', '==', userProfile.teamId),
+                where('email', '==', inviteEmail),
+                where('used', '==', false)
+            );
+            const existing = await getDocs(q);
+            if (!existing.empty) {
+                alert('An invitation for this email already exists.');
+                setLoading(false);
+                return;
+            }
+
+            await addDoc(collection(db, 'invitations'), {
+                email: inviteEmail,
+                role: 'assistant_manager',
+                teamId: userProfile.teamId,
+                used: false,
+                createdAt: new Date().toISOString()
+            });
+
+            setInviteEmail('');
+            setMessage({ text: 'Invitation sent!', type: 'success' });
+        } catch (error: any) {
+            console.error(error);
+            setMessage({ text: 'Failed to create invite.', type: 'error' });
+        }
+        setLoading(false);
+    };
+
+    const handleDeleteInvite = async (id: string) => {
+        if (!confirm('Cancel this invitation?')) return;
+        try {
+            await deleteDoc(doc(db, 'invitations', id));
+        } catch (error) {
+            console.error("Error deleting invite:", error);
+        }
+    };
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0] && userProfile?.teamId) {
@@ -214,6 +297,84 @@ const Settings: React.FC = () => {
                     </button>
                 </div>
 
+                {/* Assistant Managers Section */}
+                <div className="glass-panel" style={{ padding: '24px' }}>
+                    <h2 style={{ fontSize: '1.1rem', color: '#fff', margin: '0 0 20px 0' }}>Assistant Managers</h2>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px' }}>
+                        Invite assistants to help manage your team. They can view data but cannot invite others.
+                    </p>
+
+                    <form onSubmit={handleInviteAssistant} style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+                        <input
+                            type="email"
+                            placeholder="Assistant Email"
+                            className="form-control"
+                            value={inviteEmail}
+                            onChange={(e) => setInviteEmail(e.target.value)}
+                            required
+                            style={{ flex: 1 }}
+                        />
+                        <button type="submit" className="btn-primary" disabled={loading} style={{ width: 'auto', padding: '0 20px' }}>
+                            Invite
+                        </button>
+                    </form>
+
+                    {/* Pending Invites */}
+                    {pendingInvites.length > 0 && (
+                        <div style={{ marginBottom: '24px' }}>
+                            <h3 style={{ color: 'var(--celtic-gold)', fontSize: '0.9rem', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pending Invites</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {pendingInvites.map(invite => (
+                                    <div key={invite.id} style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <div style={{ color: '#fff', fontSize: '0.95rem' }}>{invite.email}</div>
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>Code: {invite.id}</div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                onClick={() => { navigator.clipboard.writeText(invite.id); alert('Code copied!'); }}
+                                                className="icon-btn"
+                                                style={{ width: '32px', height: '32px', color: 'var(--celtic-gold)' }}
+                                                title="Copy Code"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteInvite(invite.id)}
+                                                className="icon-btn"
+                                                style={{ width: '32px', height: '32px', color: 'var(--danger)' }}
+                                                title="Cancel Invite"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Active Assistants */}
+                    <div>
+                        <h3 style={{ color: 'var(--celtic-green)', fontSize: '0.9rem', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Team Assistants</h3>
+                        {assistants.length === 0 ? (
+                            <p style={{ color: 'var(--text-tertiary)', fontStyle: 'italic', fontSize: '0.9rem' }}>No active assistants.</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {assistants.map(assistant => (
+                                    <div key={assistant.id} style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>👤</div>
+                                            <div style={{ color: '#fff', fontSize: '0.95rem' }}>{assistant.email}</div>
+                                        </div>
+                                        {/* Future: Add remove assistant functionality here if needed */}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
                 {/* Account Actions */}
                 <div className="glass-panel" style={{ padding: '24px' }}>
                     <h2 style={{ fontSize: '1.1rem', color: '#fff', margin: '0 0 20px 0' }}>Account Settings</h2>
@@ -250,7 +411,7 @@ const Settings: React.FC = () => {
                 </div>
 
             </div>
-        </div>
+        </div >
     );
 };
 

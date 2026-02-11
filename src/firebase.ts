@@ -24,8 +24,7 @@ const app = initializeApp(firebaseConfig);
 // You must register your site in the Firebase Console -> App Check -> Apps -> Register
 // And get a reCAPTCHA v3 site key.
 try {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const appCheck = initializeAppCheck(app, {
+    initializeAppCheck(app, {
         provider: new ReCaptchaV3Provider('YOUR_RECAPTCHA_SITE_KEY_HERE'),
         isTokenAutoRefreshEnabled: true
     });

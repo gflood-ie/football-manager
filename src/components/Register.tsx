@@ -20,8 +20,35 @@ const Register: React.FC = () => {
         if (code) setInviteCode(code);
     }, [searchParams]);
 
+    const [failedAttempts, setFailedAttempts] = useState(0);
+    const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
+
+    React.useEffect(() => {
+        let interval: any;
+        if (lockoutUntil && Date.now() < lockoutUntil) {
+            interval = setInterval(() => {
+                const remaining = Math.ceil((lockoutUntil - Date.now()) / 1000);
+                if (remaining <= 0) {
+                    setLockoutUntil(null);
+                    setFailedAttempts(0);
+                    setError('');
+                } else {
+                    setError(`Too many failed attempts. Please wait ${remaining} seconds.`);
+                }
+            }, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [lockoutUntil]);
+
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (lockoutUntil && Date.now() < lockoutUntil) {
+            const remaining = Math.ceil((lockoutUntil - Date.now()) / 1000);
+            setError(`Too many failed attempts. Please try again in ${remaining} seconds.`);
+            return;
+        }
+
         setLoading(true);
         setError('');
 
@@ -63,12 +90,27 @@ const Register: React.FC = () => {
                 usedAt: new Date().toISOString()
             });
 
+            // Reset attempts on success
+            setFailedAttempts(0);
+
             // 5. Navigate to Onboarding or Home
             navigate('/');
 
         } catch (err: any) {
             console.error(err);
-            setError(err.message || 'Failed to register.');
+            // Artificial delay to mitigate timing attacks
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const newFailed = failedAttempts + 1;
+            setFailedAttempts(newFailed);
+
+            if (newFailed >= 3) {
+                const lockoutDuration = 60 * 1000; // 1 minute lockout for registration brute force
+                setLockoutUntil(Date.now() + lockoutDuration);
+                setError(`Too many failed attempts. Please wait 60 seconds.`);
+            } else {
+                setError(err.message || 'Failed to register.');
+            }
         } finally {
             setLoading(false);
         }
@@ -77,7 +119,7 @@ const Register: React.FC = () => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--background)' }}>
             <div className="glass-panel" style={{ padding: '40px', maxWidth: '400px', width: '100%', textAlign: 'center' }}>
-                <img src="/logo.png" alt="Player Manager" style={{ width: '80px', marginBottom: '20px' }} />
+                <div style={{ fontSize: '60px', marginBottom: '20px' }}>⚽</div>
                 <h2 style={{ color: '#fff', marginBottom: '20px' }}>Manager Registration</h2>
                 {error && <p style={{ color: 'var(--danger)', marginBottom: '10px' }}>{error}</p>}
                 <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

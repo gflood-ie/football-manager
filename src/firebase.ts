@@ -2,7 +2,6 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBzppkPRzuZtTsOKR7Dy9WpWLNv9Qhblts",
@@ -15,11 +14,27 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+
+// Initialize App Check
+// preventing abuse by verifying that requests are coming from your authentic app
+// You must register your site in the Firebase Console -> App Check -> Apps -> Register
+// And get a reCAPTCHA v3 site key.
+try {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider('YOUR_RECAPTCHA_SITE_KEY_HERE'),
+        isTokenAutoRefreshEnabled: true
+    });
+} catch (error) {
+    console.log("App Check init error (expected without valid key):", error);
+}
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
-export { analytics };
 export default app;

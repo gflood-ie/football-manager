@@ -3,6 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, where, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmationContext';
+import { useNavigate } from 'react-router-dom';
+import { SkeletonCard } from './common/Skeleton';
+import { EmptyState } from './common/EmptyState';
 
 interface Player {
     id: string;
@@ -28,10 +33,13 @@ const TrainingManager: React.FC = () => {
     // - 'stats': leaderboard of attendance
     const [view, setView] = useState<'list' | 'record' | 'stats'>('list');
     const { userProfile } = useAuth();
+    const { showToast } = useToast();
+    const { confirm } = useConfirm();
+    const navigate = useNavigate();
 
     // Helper for navigation
     const goBack = () => {
-        window.location.href = '/';
+        navigate('/');
     };
 
     const [players, setPlayers] = useState<Player[]>([]);
@@ -101,13 +109,20 @@ const TrainingManager: React.FC = () => {
 
     const deleteSession = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!confirm("Are you sure you want to delete this session?")) return;
+        if (!await confirm({
+            title: 'Delete Session?',
+            message: 'Are you sure you want to delete this training session?',
+            type: 'danger',
+            confirmText: 'Delete'
+        })) return;
+
         try {
             await deleteDoc(doc(db, "training_sessions", id));
             setSessions(sessions.filter(s => s.id !== id));
+            showToast('Session deleted', 'success');
         } catch (error) {
             console.error("Error deleting session:", error);
-            alert("Error deleting session");
+            showToast("Error deleting session", 'error');
         }
     };
 
@@ -130,11 +145,13 @@ const TrainingManager: React.FC = () => {
                     createdAt: new Date().toISOString()
                 });
             }
+
             fetchData();
             setView('list');
+            showToast('Session saved successfully', 'success');
         } catch (error) {
             console.error("Error saving session:", error);
-            alert("Error saving session");
+            showToast("Error saving session", 'error');
         }
         setSaving(false);
     };
@@ -197,14 +214,22 @@ const TrainingManager: React.FC = () => {
                         <h3 style={{ margin: 0, color: '#fff' }}>Recent Sessions</h3>
                     </div>
                     {loading ? (
-                        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading sessions...</div>
+                        <div style={{ padding: '20px' }}>
+                            <SkeletonCard count={3} />
+                        </div>
                     ) : sessions.length === 0 ? (
-                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>No training sessions recorded yet.</div>
+                        <EmptyState
+                            title="No Sessions"
+                            message="Start tracking training attendance."
+                            icon={<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>}
+                            action={{ label: 'New Session', onClick: handleNewSession }}
+                        />
                     ) : (
                         <div className="flex-col">
                             {sessions.map(session => (
                                 <div
                                     key={session.id}
+                                    className="active-scale"
                                     onClick={() => handleEditSession(session)}
                                     style={{
                                         padding: '20px',

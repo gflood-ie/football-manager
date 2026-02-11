@@ -5,6 +5,8 @@ import { doc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, dele
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, auth, storage } from '../firebase';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmationContext';
 
 const Settings: React.FC = () => {
     const navigate = useNavigate();
@@ -17,7 +19,9 @@ const Settings: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
-    const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+
+    const { showToast } = useToast();
+    const { confirm } = useConfirm();
 
     // Assistant Manager State
     const [inviteEmail, setInviteEmail] = useState('');
@@ -94,7 +98,7 @@ const Settings: React.FC = () => {
             );
             const existing = await getDocs(q);
             if (!existing.empty) {
-                alert('An invitation for this email already exists.');
+                showToast('An invitation for this email already exists.', 'error');
                 setLoading(false);
                 return;
             }
@@ -108,20 +112,28 @@ const Settings: React.FC = () => {
             });
 
             setInviteEmail('');
-            setMessage({ text: 'Invitation sent!', type: 'success' });
+            showToast('Invitation sent!', 'success');
         } catch (error: any) {
             console.error(error);
-            setMessage({ text: 'Failed to create invite.', type: 'error' });
+            showToast('Failed to create invite.', 'error');
         }
         setLoading(false);
     };
 
     const handleDeleteInvite = async (id: string) => {
-        if (!confirm('Cancel this invitation?')) return;
+        if (!await confirm({
+            title: 'Cancel Invitation?',
+            message: 'Are you sure you want to cancel this invitation?',
+            confirmText: 'Cancel Invite',
+            type: 'danger'
+        })) return;
+
         try {
             await deleteDoc(doc(db, 'invitations', id));
+            showToast('Invitation cancelled', 'success');
         } catch (error) {
             console.error("Error deleting invite:", error);
+            showToast('Error cancelling invite', 'error');
         }
     };
 
@@ -137,10 +149,10 @@ const Settings: React.FC = () => {
                 // Get URL
                 const url = await getDownloadURL(storageRef);
                 setCrestUrl(url);
-                setMessage({ text: "Logo uploaded successfully! Don't forget to save.", type: 'success' });
+                showToast("Logo uploaded successfully! Don't forget to save.", 'success');
             } catch (error: any) {
                 console.error("Upload error:", error);
-                setMessage({ text: "Failed to upload logo: " + error.message, type: 'error' });
+                showToast("Failed to upload logo: " + error.message, 'error');
             }
             setUploading(false);
         }
@@ -149,7 +161,7 @@ const Settings: React.FC = () => {
     const handleSave = async () => {
         if (!userProfile?.teamId) return;
         setSaving(true);
-        setMessage(null);
+
         try {
             await updateDoc(doc(db, 'teams', userProfile.teamId), {
                 name: teamName,
@@ -157,10 +169,10 @@ const Settings: React.FC = () => {
                 crestUrl: crestUrl,
                 updatedAt: new Date().toISOString()
             });
-            setMessage({ text: "Team settings saved successfully!", type: 'success' });
+            showToast("Team settings saved successfully!", 'success');
         } catch (error: any) {
             console.error("Save error:", error);
-            setMessage({ text: "Failed to save settings.", type: 'error' });
+            showToast("Failed to save settings.", 'error');
         }
         setSaving(false);
     };
@@ -169,10 +181,10 @@ const Settings: React.FC = () => {
         if (userProfile?.email) {
             try {
                 await sendPasswordResetEmail(auth, userProfile.email);
-                alert(`Password reset email sent to ${userProfile.email}`);
+                showToast(`Password reset email sent to ${userProfile.email}`, 'success');
             } catch (error: any) {
                 console.error("Password reset error:", error);
-                alert("Failed to send reset email: " + error.message);
+                showToast("Failed to send reset email: " + error.message, 'error');
             }
         }
     };
@@ -266,26 +278,8 @@ const Settings: React.FC = () => {
                         </div>
                     </div>
 
-                    {message && (
-                        <div style={{
-                            marginTop: '24px',
-                            padding: '12px',
-                            borderRadius: '12px',
-                            background: message.type === 'success' ? 'rgba(0, 158, 96, 0.1)' : 'rgba(218, 41, 28, 0.1)',
-                            color: message.type === 'success' ? 'var(--celtic-green)' : '#ff6b6b',
-                            border: `1px solid ${message.type === 'success' ? 'rgba(0, 158, 96, 0.2)' : 'rgba(218, 41, 28, 0.2)'}`,
-                            fontSize: '0.9rem',
-                            textAlign: 'center',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                        }}>
-                            {message.type === 'success' ? (
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
-                            ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-                            )}
-                            {message.text}
-                        </div>
-                    )}
+
+
 
                     <button
                         onClick={handleSave}
@@ -332,7 +326,7 @@ const Settings: React.FC = () => {
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <button
-                                                onClick={() => { navigator.clipboard.writeText(invite.id); alert('Code copied!'); }}
+                                                onClick={() => { navigator.clipboard.writeText(invite.id); showToast('Code copied!', 'success'); }}
                                                 className="icon-btn"
                                                 style={{ width: '32px', height: '32px', color: 'var(--celtic-gold)' }}
                                                 title="Copy Code"

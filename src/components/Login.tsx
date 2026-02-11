@@ -11,17 +11,58 @@ const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
+    const [failedAttempts, setFailedAttempts] = useState(0);
+    const [lockoutTime, setLockoutTime] = useState<number | null>(null);
+
+    React.useEffect(() => {
+        let interval: any;
+        if (lockoutTime && Date.now() < lockoutTime) {
+            interval = setInterval(() => {
+                const remaining = Math.ceil((lockoutTime - Date.now()) / 1000);
+                if (remaining <= 0) {
+                    setLockoutTime(null);
+                    setFailedAttempts(0);
+                    setError('');
+                } else {
+                    setError(`Too many failed attempts. Please wait ${remaining} seconds.`);
+                }
+            }, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [lockoutTime]);
+
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (lockoutTime && Date.now() < lockoutTime) {
+            const remaining = Math.ceil((lockoutTime - Date.now()) / 1000);
+            setError(`Too many failed attempts. Please try again in ${remaining} seconds.`);
+            return;
+        }
+
         setLoading(true);
+        setError('');
+
         try {
             await signInWithEmailAndPassword(auth, email, password);
+            setFailedAttempts(0);
+            setLockoutTime(null);
             navigate('/');
         } catch (err: any) {
             console.error(err);
-            setError('Failed to login. Please check your credentials.');
+            const newFailedAttempts = failedAttempts + 1;
+            setFailedAttempts(newFailedAttempts);
+
+            if (newFailedAttempts >= 3) {
+                const lockoutDuration = 30 * 1000; // 30 seconds
+                setLockoutTime(Date.now() + lockoutDuration);
+                setError(`Too many failed attempts. Please wait 30 seconds.`);
+            } else {
+                setError('Failed to login. Please check your credentials.');
+            }
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     return (

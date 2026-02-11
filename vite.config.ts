@@ -4,4 +4,10 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  build: {
+    outDir: 'dist',
+    target: 'es2015',
+    sourcemap: false, // Production security: hide source code
+  },
+  base: './',
 })

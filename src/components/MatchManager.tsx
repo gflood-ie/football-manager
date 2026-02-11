@@ -2,7 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, addDoc, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
+
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmationContext';
+import { useNavigate } from 'react-router-dom';
+import { SkeletonCard } from './common/Skeleton';
+import { EmptyState } from './common/EmptyState';
 
 interface Player {
     id: string;
@@ -16,11 +22,16 @@ interface Match {
     competition: string;
     squad: string[];
     scorers: Record<string, number>;
+    opponentScore?: number;
 }
 
 const MatchManager: React.FC = () => {
     const [view, setView] = useState<'list' | 'record' | 'edit' | 'scorers'>('list');
+
     const { userProfile } = useAuth();
+    const { showToast } = useToast();
+    const { confirm } = useConfirm();
+    const navigate = useNavigate();
 
     const [matches, setMatches] = useState<Match[]>([]);
     const [players, setPlayers] = useState<Player[]>([]);
@@ -33,6 +44,7 @@ const MatchManager: React.FC = () => {
     const [competition, setCompetition] = useState('League');
     const [squad, setSquad] = useState<Record<string, boolean>>({});
     const [scorers, setScorers] = useState<Record<string, number>>({});
+    const [opponentScore, setOpponentScore] = useState<string | number>('');
     const [saving, setSaving] = useState(false);
 
     // Custom Competition State
@@ -78,6 +90,7 @@ const MatchManager: React.FC = () => {
         setShowCustomCompetition(false);
         setSquad({});
         setScorers({});
+        setOpponentScore('');
         setView('record');
     };
 
@@ -99,28 +112,36 @@ const MatchManager: React.FC = () => {
         setSquad(squadMap);
 
         setScorers(match.scorers || {});
+        setOpponentScore(match.opponentScore ?? '');
         setView('record');
     };
 
     const deleteMatch = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!confirm('Are you sure you want to delete this match report?')) return;
+        if (!await confirm({
+            title: 'Delete Match Report?',
+            message: 'Are you sure you want to delete this match report? This cannot be undone.',
+            type: 'danger',
+            confirmText: 'Delete'
+        })) return;
+
         try {
             await deleteDoc(doc(db, "matches", id));
             setMatches(matches.filter(m => m.id !== id));
+            showToast('Match deleted', 'success');
         } catch (error) {
             console.error("Error deleting match:", error);
-            alert("Error deleting match");
+            showToast('Error deleting match', 'error');
         }
     };
 
     const saveMatch = async () => {
         if (!opposition) {
-            alert("Please enter opposition name");
+            showToast("Please enter opposition name", 'error');
             return;
         }
         if (!competition) {
-            alert("Please enter competition name");
+            showToast("Please enter competition name", 'error');
             return;
         }
         setSaving(true);
@@ -131,6 +152,7 @@ const MatchManager: React.FC = () => {
                 competition,
                 squad: Object.keys(squad).filter(id => squad[id]),
                 scorers,
+                opponentScore: opponentScore === '' ? 0 : Number(opponentScore),
                 updatedAt: new Date().toISOString()
             };
 
@@ -143,11 +165,13 @@ const MatchManager: React.FC = () => {
                     createdAt: new Date().toISOString()
                 });
             }
+
             fetchData();
             setView('list');
+            showToast('Match report saved!', 'success');
         } catch (error) {
             console.error("Error saving match:", error);
-            alert("Error saving match");
+            showToast('Error saving match', 'error');
         }
         setSaving(false);
     };
@@ -189,9 +213,9 @@ const MatchManager: React.FC = () => {
             <div className="page-container animate-fade-in">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div className="flex-center gap-3">
-                        <a href="/" className="icon-btn">
+                        <button onClick={() => navigate('/')} className="icon-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-                        </a>
+                        </button>
                         <h1 className="text-gradient-gold" style={{ fontSize: '2rem', margin: 0 }}>Matches</h1>
                     </div>
                 </div>
@@ -206,17 +230,24 @@ const MatchManager: React.FC = () => {
                 <div className="glass-panel" style={{ padding: '0', overflow: 'hidden' }}>
                     <h3 style={{ margin: 0, padding: '20px', borderBottom: '1px solid var(--glass-border)', color: '#fff', fontSize: '1.2rem' }}>Recent Results</h3>
                     {loading ? (
-                        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading...</div>
+                        <div style={{ padding: '20px' }}>
+                            <SkeletonCard count={3} />
+                        </div>
                     ) : matches.length === 0 ? (
-                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>No matches recorded yet.</div>
+                        <EmptyState
+                            title="No Matches"
+                            message="Record your first match result."
+                            icon={<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m10 8 6 4-6 4V8z" /></svg>}
+                            action={{ label: 'Record Match', onClick: handleNewMatch }}
+                        />
                     ) : (
-                        <div className="flex-col">
+                        <div className="flex-col virtual-list">
                             {matches.map(match => {
                                 const totalGoals = match.scorers ? Object.values(match.scorers).reduce((a, b) => a + b, 0) : 0;
                                 return (
                                     <div
                                         key={match.id}
-                                        className="animate-fade-in"
+                                        className="animate-fade-in active-scale"
                                         style={{
                                             padding: '24px',
                                             borderBottom: '1px solid var(--glass-border)',
@@ -240,7 +271,7 @@ const MatchManager: React.FC = () => {
                                                 Vs {match.opposition}
                                             </div>
                                             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--celtic-green)', background: 'rgba(0,158,96,0.1)', padding: '4px 12px', borderRadius: '8px' }}>
-                                                {totalGoals}
+                                                {totalGoals} - {match.opponentScore ?? 0}
                                             </div>
                                         </div>
 
@@ -349,6 +380,17 @@ const MatchManager: React.FC = () => {
                             autoFocus
                         />
                     )}
+                </div>
+                <div>
+                    <label className="form-label">Opponent Score</label>
+                    <input
+                        type="number"
+                        min="0"
+                        className="form-control"
+                        placeholder="0"
+                        value={opponentScore}
+                        onChange={e => setOpponentScore(e.target.value)}
+                    />
                 </div>
             </div>
 

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, query, orderBy, deleteDoc, doc, where } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, deleteDoc, doc, where } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmationContext';
 
 const SuperAdminDashboard: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -12,34 +14,29 @@ const SuperAdminDashboard: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const { userProfile, signOut } = useAuth();
     const navigate = useNavigate();
+    const { showToast } = useToast();
+    const { confirm } = useConfirm();
 
     useEffect(() => {
         if (userProfile && userProfile.role !== 'super_admin') {
             navigate('/');
-        } else {
+        }
+        if (userProfile?.role === 'super_admin') {
             fetchInvitations();
             fetchManagers();
         }
     }, [userProfile, navigate]);
 
     const fetchInvitations = async () => {
-        try {
-            const q = query(collection(db, 'invitations'), orderBy('createdAt', 'desc'));
-            const snapshot = await getDocs(q);
-            setInvitations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        } catch (error) {
-            console.error("Error fetching invitations:", error);
-        }
+        const q = query(collection(db, 'invitations'), where('used', '==', false));
+        const snapshot = await getDocs(q);
+        setInvitations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     };
 
     const fetchManagers = async () => {
-        try {
-            const q = query(collection(db, 'users'), where('role', '==', 'manager'));
-            const snapshot = await getDocs(q);
-            setManagers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        } catch (error) {
-            console.error("Error fetching managers:", error);
-        }
+        const q = query(collection(db, 'users'), where('role', '==', 'manager'));
+        const snapshot = await getDocs(q);
+        setManagers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     };
 
     const handleCreateInvite = async (e: React.FormEvent) => {
@@ -53,200 +50,122 @@ const SuperAdminDashboard: React.FC = () => {
                 createdAt: new Date().toISOString()
             });
 
-            alert(`Invitation created! Code: ${docRef.id}`);
+            showToast(`Invitation created! Code: ${docRef.id}`, 'success');
             setEmail('');
             fetchInvitations();
         } catch (error) {
             console.error(error);
-            alert("Failed to create invitation");
+            showToast("Failed to create invitation", 'error');
         }
         setLoading(false);
     };
 
-    const deleteInvite = async (id: string) => {
-        if (!confirm("Delete this invite?")) return;
-        await deleteDoc(doc(db, 'invitations', id));
-        fetchInvitations();
-    }
+    const deleteInvite = async (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!await confirm({
+            title: 'Delete Invite?',
+            message: 'Are you sure you want to delete this invite?',
+            type: 'danger',
+            confirmText: 'Delete'
+        })) return;
+
+        try {
+            await deleteDoc(doc(db, 'invitations', id));
+            showToast('Invite deleted', 'success');
+            fetchInvitations();
+        } catch (error) {
+            console.error("Error deleting invite:", error);
+            showToast('Error deleting invite', 'error');
+        }
+    };
 
     const copyCode = (id: string) => {
         navigator.clipboard.writeText(id);
-        alert("Code copied to clipboard!");
+        showToast("Code copied to clipboard!", 'success');
     };
 
     const handleResetPassword = async (email: string) => {
-        if (!confirm(`Send password reset email to ${email}?`)) return;
+        if (!await confirm({
+            title: 'Reset Password?',
+            message: `Send password reset email to ${email}?`,
+            confirmText: 'Send Email'
+        })) return;
+
         try {
             await sendPasswordResetEmail(auth, email);
-            alert(`Password reset email sent to ${email}`);
+            showToast(`Password reset email sent to ${email}`, 'success');
         } catch (error) {
             console.error("Error sending reset email:", error);
-            alert("Error sending password reset email. Please try again.");
+            showToast("Error sending password reset email. Please try again.", 'error');
         }
     };
 
     return (
-        <div style={{ padding: '16px', maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <button
-                            onClick={() => navigate('/')}
-                            style={{
-                                background: 'rgba(255,255,255,0.1)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: '40px',
-                                height: '40px',
-                                color: '#fff',
-                                fontSize: '1.2rem',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            ←
-                        </button>
-                        <h1 style={{ color: '#fff', margin: 0, fontSize: '1.5rem' }}>Super Admin</h1>
-                    </div>
-                    <button onClick={() => signOut()} style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem' }}>
-                        Sign Out
-                    </button>
-                </div>
+        <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+                <h1 style={{ color: 'var(--celtic-gold)' }}>Super Admin</h1>
+                <button onClick={() => signOut()} className="btn-danger">Sign Out</button>
             </div>
 
-            {/* Invite Form */}
-            <div className="glass-panel" style={{ padding: '20px' }}>
-                <h2 style={{ color: 'var(--celtic-gold)', marginBottom: '16px', fontSize: '1.2rem' }}>Invite New Manager</h2>
-                <form onSubmit={handleCreateInvite} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '16px' }}>Create Manager Invitation</h2>
+                <form onSubmit={handleCreateInvite} style={{ display: 'flex', gap: '10px' }}>
                     <input
                         type="email"
                         placeholder="Manager Email"
-                        value={email}
-                        onChange={e => setEmail(e.target.value)}
                         className="form-control"
-                        style={{ flex: 1, minWidth: '250px' }}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
                         required
                     />
-                    <button type="submit" className="btn-primary" disabled={loading} style={{ whiteSpace: 'nowrap', width: '100%', maxWidth: '200px' }}>
+                    <button type="submit" className="btn-primary" disabled={loading}>
                         {loading ? 'Creating...' : 'Create Invite'}
                     </button>
                 </form>
             </div>
 
-            {/* Registered Managers List */}
-            <div>
-                <h3 style={{ color: '#fff', marginBottom: '16px', fontSize: '1.1rem' }}>Registered Managers</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                    {managers.map(manager => (
-                        <div key={manager.id} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(255,255,255,0.03)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    👤
-                                </div>
-                                <div style={{ overflow: 'hidden' }}>
-                                    <div style={{ color: '#fff', fontWeight: 600, fontSize: '0.95rem', overflow: 'hidden', textOverflow: 'ellipsis' }}>{manager.email}</div>
-                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                                        {manager.teamId ? 'Has Team' : 'No Team'}
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '16px' }}>Active Invitations</h2>
+                {invitations.length === 0 ? (
+                    <p style={{ color: 'var(--text-secondary)' }}>No active invitations.</p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {invitations.map(invite => (
+                            <div key={invite.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontWeight: 'bold', color: '#fff' }}>{invite.email}</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer' }} onClick={() => copyCode(invite.id)}>
+                                        Code: {invite.id} (Click to copy)
                                     </div>
                                 </div>
+                                <button onClick={(e) => deleteInvite(invite.id, e)} className="btn-danger" style={{ padding: '4px 12px', fontSize: '0.8rem' }}>
+                                    Delete
+                                </button>
                             </div>
-                            <button
-                                onClick={() => handleResetPassword(manager.email)}
-                                style={{
-                                    marginTop: '8px',
-                                    background: 'rgba(255,199,44,0.1)',
-                                    border: '1px solid var(--celtic-gold)',
-                                    color: 'var(--celtic-gold)',
-                                    padding: '6px 12px',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 600,
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '6px'
-                                }}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                                Reset Password
-                            </button>
-                        </div>
-                    ))}
-                    {managers.length === 0 && (
-                        <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No registered managers found.</p>
-                    )}
-                </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
-            {/* Recent Invitations List */}
-            <div>
-                <h3 style={{ color: '#fff', marginBottom: '16px', fontSize: '1.1rem' }}>Recent Invitations</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                    {invitations.map(invite => (
-                        <div key={invite.id} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.03)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '1.2rem', color: '#fff', marginBottom: '16px' }}>Registered Managers</h2>
+                {managers.length === 0 ? (
+                    <p style={{ color: 'var(--text-secondary)' }}>No managers registered yet.</p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {managers.map(manager => (
+                            <div key={manager.id} style={{ background: 'rgba(0,158,96,0.1)', padding: '16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <div style={{ color: '#fff', fontWeight: 600, fontSize: '1rem', wordBreak: 'break-all' }}>{invite.email || 'No Email'}</div>
-                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '4px' }}>
-                                        {new Date(invite.createdAt).toLocaleDateString()}
-                                    </div>
+                                    <div style={{ fontWeight: 'bold', color: '#fff' }}>{manager.email}</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--celtic-green)' }}>Team ID: {manager.teamId || 'Not Setup'}</div>
                                 </div>
-                                <span style={{
-                                    padding: '4px 8px',
-                                    borderRadius: '12px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 'bold',
-                                    background: invite.used ? 'rgba(218, 41, 28, 0.2)' : 'rgba(0, 158, 96, 0.2)',
-                                    color: invite.used ? 'var(--danger)' : 'var(--celtic-green)'
-                                }}>
-                                    {invite.used ? 'USED' : 'ACTIVE'}
-                                </span>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
-                                <button
-                                    onClick={() => copyCode(invite.id)}
-                                    style={{
-                                        flex: 1,
-                                        background: 'rgba(255,199,44,0.1)',
-                                        border: '1px solid var(--celtic-gold)',
-                                        color: 'var(--celtic-gold)',
-                                        padding: '8px',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        fontSize: '0.9rem',
-                                        fontWeight: 500
-                                    }}
-                                >
-                                    Copy Code
-                                </button>
-                                <button
-                                    onClick={() => deleteInvite(invite.id)}
-                                    style={{
-                                        width: '40px',
-                                        background: 'rgba(218, 41, 28, 0.1)',
-                                        border: '1px solid var(--danger)',
-                                        color: 'var(--danger)',
-                                        padding: '8px',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center'
-                                    }}
-                                    title="Delete"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                <button onClick={() => handleResetPassword(manager.email)} className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem' }}>
+                                    Reset Password
                                 </button>
                             </div>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

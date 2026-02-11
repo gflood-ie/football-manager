@@ -4,6 +4,11 @@ import * as XLSX from 'xlsx';
 import { collection, getDocs, query, writeBatch, doc, deleteDoc, updateDoc, addDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmationContext';
+import { useNavigate } from 'react-router-dom';
+import { SkeletonCard } from './common/Skeleton';
+import { EmptyState } from './common/EmptyState';
 
 interface Player {
     id: string;
@@ -16,10 +21,13 @@ interface Player {
 
 const PlayerManager: React.FC = () => {
     const { userProfile } = useAuth();
+    const { showToast } = useToast();
+    const { confirm } = useConfirm();
+    const navigate = useNavigate();
 
     // Helper to simulate navigation or just go back to home
     const goBack = () => {
-        window.location.href = '/';
+        navigate('/');
     };
 
     const [players, setPlayers] = useState<Player[]>([]);
@@ -56,14 +64,20 @@ const PlayerManager: React.FC = () => {
     };
 
     const deletePlayer = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this player?')) return;
+        if (!await confirm({
+            title: 'Delete Player?',
+            message: 'Are you sure you want to delete this player? This action cannot be undone.',
+            type: 'danger',
+            confirmText: 'Delete'
+        })) return;
 
         try {
             await deleteDoc(doc(db, "players", id));
             setPlayers(players.filter(p => p.id !== id));
+            showToast('Player deleted successfully', 'success');
         } catch (error) {
             console.error("Error deleting player", error);
-            alert("Error deleting player");
+            showToast('Error deleting player', 'error');
         }
     };
 
@@ -82,15 +96,16 @@ const PlayerManager: React.FC = () => {
 
             setPlayers(players.map(p => p.id === editingPlayer.id ? editingPlayer : p));
             setEditingPlayer(null);
+            showToast('Player updated successfully', 'success');
         } catch (error) {
             console.error("Error updating player", error);
-            alert("Error updating player");
+            showToast('Error updating player', 'error');
         }
     };
 
     const handleAddPlayer = async () => {
         if (!newPlayerName.trim()) {
-            alert("Please enter a player name");
+            showToast("Please enter a player name", 'error');
             return;
         }
 
@@ -108,10 +123,13 @@ const PlayerManager: React.FC = () => {
             setNewPlayerName('');
             setAdding(false);
             fetchPlayers();
-            alert("Player added!");
+            setNewPlayerName('');
+            setAdding(false);
+            fetchPlayers();
+            showToast("Player added successfully!", 'success');
         } catch (error) {
             console.error("Error adding player:", error);
-            alert("Error adding player");
+            showToast("Error adding player", 'error');
         }
     };
 
@@ -132,7 +150,7 @@ const PlayerManager: React.FC = () => {
                 await processImportData(data);
             } catch (error) {
                 console.error("Error parsing file:", error);
-                alert("Error parsing file. Please check the console for details.");
+                showToast("Error parsing file. Please check the console.", 'error');
             } finally {
                 setImporting(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -167,11 +185,11 @@ const PlayerManager: React.FC = () => {
             }
 
             await batch.commit();
-            alert(`Successfully imported ${count} players!`);
+            showToast(`Successfully imported ${count} players!`, 'success');
             fetchPlayers(); // Refresh list
         } catch (error) {
             console.error("Error saving to Firestore:", error);
-            alert("Error saving data to database. Check console.");
+            showToast("Error saving data to database.", 'error');
         }
     };
 
@@ -274,10 +292,13 @@ const PlayerManager: React.FC = () => {
                                             used: false,
                                             createdAt: new Date().toISOString()
                                         });
-                                        alert(`Invitation created for ${email}. Code: ${docRef.id}`);
+                                        showToast(`Invitation created for ${email}`, 'success');
+                                        // Maybe copy code to clipboard or show it in a modal?
+                                        // keeping simple for now
+                                        console.log(docRef.id);
                                     } catch (err) {
                                         console.error(err);
-                                        alert("Failed to create invitation");
+                                        showToast("Failed to create invitation", 'error');
                                     }
                                 }
                             }}
@@ -297,14 +318,21 @@ const PlayerManager: React.FC = () => {
                 </div>
 
                 {/* Mobile Friendly Cards */}
-                <div className="flex-col gap-4">
+                <div className="flex-col gap-4 virtual-list">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
                         <span style={{ color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.85rem' }}>Total Players</span>
                         <span style={{ color: '#fff', fontWeight: 700, fontSize: '1.2rem' }}>{players.length}</span>
                     </div>
 
                     {loading ? (
-                        <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '32px' }}>Loading squad...</div>
+                        <SkeletonCard count={6} />
+                    ) : players.length === 0 ? (
+                        <EmptyState
+                            title="No Players Found"
+                            message="Your squad is empty. Add players to manage your team."
+                            icon={<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>}
+                            action={{ label: 'Add Player', onClick: () => setAdding(true) }}
+                        />
                     ) : (
                         players.map((player) => (
                             <div key={player.id} className="glass-panel" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

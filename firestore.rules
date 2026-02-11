@@ -38,7 +38,14 @@ service cloud.firestore {
        // Super Admins can delete anywhere. Managers can delete their team's invites.
        allow delete: if isSuperAdmin() || (isSignedIn() && resource.data.teamId == getUserData().teamId);
 
-       allow update: if true; // Needs specific validation for "used" field in future
+       // Securely allow marking an invitation as used during registration
+       allow update: if isSuperAdmin() || (
+         isSignedIn() 
+         && resource.data.used == false
+         && request.resource.data.used == true
+         && request.resource.data.usedBy == request.auth.uid
+         // Optional: restrict to only specific fields if desired, but this core logic is key
+       );
     }
     
     match /teams/{teamId} {

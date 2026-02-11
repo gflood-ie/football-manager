@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useToast } from '../context/ToastContext';
 
 interface Player {
     id: string;
@@ -14,6 +15,7 @@ interface MatchRecorderProps {
 }
 
 const MatchRecorder: React.FC<MatchRecorderProps> = ({ onBack }) => {
+    const { showToast } = useToast();
     const [players, setPlayers] = useState<Player[]>([]);
     const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [opposition, setOpposition] = useState('');
@@ -47,7 +49,7 @@ const MatchRecorder: React.FC<MatchRecorderProps> = ({ onBack }) => {
 
     const saveMatch = async () => {
         if (!opposition) {
-            alert("Please enter opposition name");
+            showToast("Please enter opposition name", 'error');
             return;
         }
         setSaving(true);
@@ -60,11 +62,11 @@ const MatchRecorder: React.FC<MatchRecorderProps> = ({ onBack }) => {
                 scorers,
                 createdAt: new Date().toISOString()
             });
-            alert("Match recorded successfully!");
+            showToast("Match recorded successfully!", 'success');
             onBack();
         } catch (error) {
             console.error("Error saving match:", error);
-            alert("Error saving match");
+            showToast("Error saving match", 'error');
         }
         setSaving(false);
     };
